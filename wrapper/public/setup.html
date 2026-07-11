@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>OpenClaw Setup</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1115; color: #e6e6e6; max-width: 640px; margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 1.4rem; }
+  .card { background: #181b21; border: 1px solid #2a2e37; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  button { background: #e0554f; color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.95rem; }
+  button:hover { background: #c94943; }
+  button:disabled { background: #444; cursor: not-allowed; }
+  .device { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #2a2e37; }
+  .device:last-child { border-bottom: none; }
+  .muted { color: #9a9fa8; font-size: 0.85rem; }
+  a.button-link { display: inline-block; background: #e0554f; color: white; text-decoration: none; padding: 10px 18px; border-radius: 6px; margin-top: 10px; }
+  #status { min-height: 1.2em; margin-top: 8px; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>OpenClaw Setup</h1>
+
+  <div class="card">
+    <p>If this is your first time connecting, open the Control UI below. It will show "device pairing required" once - come back here, approve the pending request, then reopen the Control UI and it'll connect normally.</p>
+    <a class="button-link" href="/" target="_blank" rel="noopener">Open Control UI</a>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:1.1rem;">Pending device requests</h2>
+    <div id="pending-list" class="muted">Loading...</div>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:1.1rem;">Paired devices</h2>
+    <div id="paired-list" class="muted">Loading...</div>
+  </div>
+
+<script>
+async function loadDevices() {
+  const res = await fetch('/setup/api/devices');
+  const body = await res.json();
+  const pendingEl = document.getElementById('pending-list');
+  const pairedEl = document.getElementById('paired-list');
+
+  if (!body.ok) {
+    pendingEl.textContent = 'Could not load devices: ' + (body.error || 'unknown error');
+    pairedEl.textContent = '';
+    return;
+  }
+
+  const pending = (body.data && body.data.pending) || [];
+  const paired = (body.data && body.data.paired) || [];
+
+  pendingEl.innerHTML = '';
+  if (pending.length === 0) {
+    pendingEl.textContent = 'No pending requests right now.';
+  } else {
+    pending.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'device';
+      const id = p.requestId || p.id;
+      row.innerHTML = '<span>' + (p.platform || 'unknown device') + ' - ' + (p.clientMode || '') + '</span>';
+      const btn = document.createElement('button');
+      btn.textContent = 'Approve';
+      btn.onclick = () => approveDevice(id, btn);
+      row.appendChild(btn);
+      pendingEl.appendChild(row);
+    });
+  }
+
+  pairedEl.textContent = paired.length
+    ? paired.map((d) => (d.platform || 'unknown') + ' (' + (d.clientMode || d.role || '') + ')').join(', ')
+    : 'No devices paired yet.';
+}
+
+async function approveDevice(requestId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Approving...';
+  const status = document.getElementById('status');
+  try {
+    const res = await fetch('/setup/api/devices/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId }),
+    });
+    const body = await res.json();
+    if (body.ok) {
+      status.textContent = 'Approved. Reopen the Control UI tab and click Connect again.';
+      status.style.color = '#7fd88f';
+    } else {
+      status.textContent = 'Approval failed: ' + (body.error || 'unknown error');
+      status.style.color = '#e0554f';
+    }
+  } catch (e) {
+    status.textContent = 'Request failed: ' + e.message;
+    status.style.color = '#e0554f';
+  }
+  loadDevices();
+}
+
+loadDevices();
+setInterval(loadDevices, 5000);
+</script>
+</body>
+</html>

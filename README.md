@@ -17,10 +17,13 @@
 ## How to Use
 
 1. Click the Deploy button above
-2. Once deployed, open your Railway domain in a browser — you'll land on the OpenClaw Control UI dashboard
-3. Copy the `OPENCLAW_GATEWAY_TOKEN` value from your Railway service's Variables tab, paste it into the "Gateway Token" field, and click Connect
-4. **First connection only:** you'll see a "Device pairing required" message — this is expected. Wait ~2 seconds (this template auto-approves pairing requests) and click Connect again. It'll connect normally from then on.
-5. Add your LLM provider API keys (Claude, OpenAI, etc.) via Railway environment variables, then start chatting across any connected channel
+2. Once deployed, open `https://<your-domain>/setup` in a browser. Copy the `SETUP_PASSWORD` value from your Railway service's Variables tab and enter it when prompted.
+3. On the Setup page, click "Open Control UI" (opens in a new tab). Copy the `OPENCLAW_GATEWAY_TOKEN` value from Variables, paste it into the "Gateway Token" field, and click Connect.
+4. **First connection only:** you'll see "Device pairing required." Go back to the Setup tab — your device now shows up under "Pending device requests." Click **Approve**.
+5. Reopen the Control UI tab and click Connect again — it'll connect normally from now on.
+6. Add your LLM provider API keys (Claude, OpenAI, etc.) via Railway environment variables, then start chatting across any connected channel
+
+Why the extra Setup step exists: Railway gives nobody shell access to a deployed container, so the normal `openclaw devices approve` CLI command used to approve a new device can't be run. The `/setup` page (password-protected, separately from the gateway token) is how you approve your own device instead — it's a real manual step you take once per new device, not an automated bypass.
 
 The default gateway runs on port 18789 and exposes:
 - **Gateway API** on port 18789 (main AI interface)
@@ -31,6 +34,6 @@ The default gateway runs on port 18789 and exposes:
 
 - **Persistence**: State is stored in `/home/node/.openclaw` volume. Railway persists this automatically.
 - **API Keys**: Add your LLM provider credentials (Claude, OpenAI, etc.) via Railway environment variables.
-- **Pairing**: This template auto-approves device pairing requests (Railway provides no way to run the normal `openclaw devices approve` CLI command against a deployed container). Your first-ever Connect click will show "Device pairing required" — that's expected, just click Connect again a couple seconds later.
+- **Pairing**: New devices are approved manually via the password-protected `/setup` page (see "How to Use" above), since Railway provides no shell access to run `openclaw devices approve` directly against a deployed container.
 - **Multi-device**: Once paired, any device can connect to the same gateway and share the workspace.
 - **Open Source**: MIT licensed. Source code available at [github.com/openclaw/openclaw](https://github.com/openclaw/openclaw).

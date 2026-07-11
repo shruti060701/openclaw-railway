@@ -31,7 +31,8 @@ Apply these settings in the Railway template composer when generating the templa
 | `OPENCLAW_GATEWAY_TOKEN` | Authentication token for the gateway API (auto-generated on first startup). | `${{secret(32)}}` |
 | `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` | Allow insecure WebSocket connections for local development (not recommended for production). | `false` |
 | `OPENCLAW_DISABLE_BONJOUR` | Disable Bonjour/mDNS for device discovery (set to 1 to disable in containers). | `1` |
-| `OPENCLAW_GATEWAY_CONTROLUI_ALLOWEDORIGINS` | Browser origins allowed to connect to the Control UI dashboard. Must match your Railway domain exactly, or the dashboard's "Connect" button fails with "Browser origin not allowed." | `["https://${{RAILWAY_PUBLIC_DOMAIN}}"]` |
+| `SETUP_PASSWORD` | Password protecting the `/setup` page, where you approve new device pairing requests. | `${{secret(20)}}` |
+| `GATEWAY_INTERNAL_PORT` | Internal-only port the real gateway listens on, behind the wrapper. Not exposed publicly. | `18799` |
 | `CLAUDE_AI_SESSION_KEY` | Claude API session key for Anthropic model access (optional, only if using Claude). | Leave blank for now |
 | `CLAUDE_WEB_SESSION_KEY` | Web session key for Claude API (optional). | Leave blank for now |
 | `CLAUDE_WEB_COOKIE` | Web cookie for Claude authentication (optional). | Leave blank for now |
@@ -66,6 +67,7 @@ Never hardcode real tokens or credentials from your dev project. Use these templ
 | Variable | Template Syntax | Purpose |
 |----------|-----------------|---------|
 | `OPENCLAW_GATEWAY_TOKEN` | `${{secret(32)}}` | Auto-generated API gateway authentication token |
+| `SETUP_PASSWORD` | `${{secret(20)}}` | Auto-generated password for the `/setup` device-approval page |
 
 ---
 
@@ -121,11 +123,11 @@ After the template is published, test-deploy from a fresh Railway account (incog
 
 After deployment:
 
-1. Note the Railway domain and gateway token from logs
-2. On your local machine, run `openclaw onboard --gateway-url <railway-domain>`
-3. The CLI will guide you through pairing your devices and configuring channels
-4. Add your LLM provider credentials (Claude, OpenAI, etc.) via environment variables in Railway dashboard
-5. Restart the service and start chatting with your assistant across any connected channel
+1. Open `https://<domain>/setup`, log in with the `SETUP_PASSWORD` from Railway Variables
+2. Click "Open Control UI" (new tab), paste in `OPENCLAW_GATEWAY_TOKEN`, click Connect — this will show "device pairing required" the first time, which is expected
+3. Back in the `/setup` tab, the new device shows under "Pending device requests" — click **Approve**
+4. Reopen the Control UI tab and click Connect again — it connects normally from here on
+5. Add your LLM provider credentials (Claude, OpenAI, etc.) via environment variables in Railway dashboard, restart, and start chatting across any connected channel
 
 ---
 
@@ -139,7 +141,15 @@ After deployment:
 
 **"Browser origin not allowed" when clicking Connect in the Control UI dashboard:** The gateway's Control UI has an origin allowlist and rejects the Railway domain by default. There is no working env var for this (a third-party source claiming `OPENCLAW_GATEWAY_CONTROLUI_ALLOWEDORIGINS` works is wrong — verified via runtime logs that the gateway silently ignores it and auto-seeds a localhost-only default instead). The fix baked into `entrypoint.sh` runs `openclaw config set gateway.controlUi.allowedOrigins "[\"https://$RAILWAY_PUBLIC_DOMAIN\"]"` at container startup, writing directly to the config file the gateway actually reads. If you fork this template and remove `entrypoint.sh`, this error comes back.
 
-**"Device pairing required" — expect this on literally every deployer's first-ever Connect click, not just yours.** Railway provides no way to run `openclaw devices approve <id>` against a deployed container (`railway shell`/`railway connect`/`railway run` are all local-only, none exec into the running container), and OpenClaw has no bootstrap exception for a fresh gateway — so without a fix, this template would be permanently unusable for every single person who deploys it. `entrypoint.sh` runs a background loop that polls `openclaw devices list --json` every 1s and auto-approves any pending request. **Known limitation, not a bug:** OpenClaw's Control UI has no documented auto-retry after a pairing rejection, so the first Connect attempt will still show this error and fail even though it gets auto-approved a moment later — the user has to click Connect a second time, a few seconds after the first, for it to actually connect. This is now documented in the README as an expected first-connect step. **Security tradeoff, explicitly chosen:** this removes the device-approval layer entirely — the gateway token is still required to reach this point, this only skips the check behind it. Acceptable for a single-operator template; reconsider if this image/pattern is reused for anything multi-tenant.
+**"Device pairing required" — expect this on literally every deployer's first-ever Connect click, not just yours.** Railway provides no way to run `openclaw devices approve <id>` against a deployed container (`railway shell`/`railway connect`/`railway run` are all local-only, none exec into the running container), and OpenClaw has no bootstrap exception for a fresh gateway — so without a fix, this template would be permanently unusable for every single person who deploys it.
+
+**How this template solves it (and why, after two other approaches):** a small Express wrapper (`wrapper/server.js`) sits in front of the real gateway — it owns the public port, spawns the actual OpenClaw gateway on an internal-only loopback port (`GATEWAY_INTERNAL_PORT`), and proxies everything through to it except for `/setup`, which it handles itself. `/setup` is password-gated (`SETUP_PASSWORD`) and shows pending device requests with a real **Approve** button — the deployer clicks it themselves. This is modeled on the pattern used by the most successful competing OpenClaw Railway templates (verified by reading their actual open-source code, e.g. github.com/arjunkomath/openclaw-railway-template, MIT licensed), not invented blind.
+
+Two other approaches were tried and explicitly rejected before landing here, both correctly caught by a security review before being deployed:
+- An auto-approve background loop (no human involved at all in approving a device) — too permissive on its own once combined with the second idea below.
+- A script injected into the Control UI page that auto-clicks "Connect" again after a pairing rejection, simulating the human's second click. This one's the important lesson: it wasn't a technical bug being routed around, it was **removing OpenClaw's own deliberate security control** (a fresh, consciously-initiated human click is required after every first-time device approval, specifically so a compromised/scripted client can't silently complete pairing with no human ever aware). Combined with the auto-approve loop, the two together would have meant anyone with the valid gateway token connects with zero human involvement at any point. Don't reintroduce either of these — the wrapper is the correct fix because it adds a *real* human action (a password-gated Approve button) rather than removing the existing one.
+
+**Residual friction, and it's expected, not a bug:** the deployer still does a short first-time flow (open `/setup` → open Control U​I → see pending → go back and Approve → reopen Control UI → Connect again). This is the minimum unavoidable interaction, since a browser's unique device identity only exists once it first attempts to connect — nothing can pre-approve an identity that doesn't exist yet. The difference from the raw/undocumented version of this problem is that it's now a guided, labeled setup step instead of an unexplained-looking error.
 
 **Healthcheck failing:** Verify the gateway is listening on 18789. Try `curl http://127.0.0.1:18789/healthz` from inside the container.
 
