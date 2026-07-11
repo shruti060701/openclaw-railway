@@ -13,6 +13,7 @@
 // everything (HTTP + WebSocket) through to it, except for the /setup/*
 // routes, which it handles itself.
 const path = require('path');
+const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
 const express = require('express');
 const httpProxy = require('http-proxy');
@@ -68,24 +69,72 @@ function runCli(args) {
   });
 }
 
-function requireSetupAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const [scheme, encoded] = header.split(' ');
-  if (scheme === 'Basic' && encoded) {
-    const decoded = Buffer.from(encoded, 'base64').toString('utf8');
-    const sepIndex = decoded.indexOf(':');
-    const password = sepIndex >= 0 ? decoded.slice(sepIndex + 1) : decoded;
-    if (password === SETUP_PASSWORD) {
-      next();
-      return;
+// Cookie-based session instead of HTTP Basic Auth: a plain password-only
+// login form is much less confusing than the browser's native username+
+// password popup (there is no username here at all), and a session cookie
+// persists far more reliably across tabs/reloads than Basic Auth caching.
+// Sessions are in-memory only - they reset on redeploy, which just means
+// logging in again, no real cost for a single-operator setup page.
+const validSessions = new Set();
+
+function parseCookies(req) {
+  const header = req.headers.cookie || '';
+  const cookies = {};
+  header.split(';').forEach((pair) => {
+    const idx = pair.indexOf('=');
+    if (idx > -1) {
+      cookies[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
     }
-  }
-  res.set('WWW-Authenticate', 'Basic realm="OpenClaw Setup"');
-  res.status(401).send('Authentication required');
+  });
+  return cookies;
 }
+
+function requireSetupAuth(req, res, next) {
+  const cookies = parseCookies(req);
+  if (cookies.setup_session && validSessions.has(cookies.setup_session)) {
+    next();
+    return;
+  }
+  res.redirect('/setup/login');
+}
+
+const LOGIN_PAGE = (error) => `<!doctype html>
+<html><head><meta charset="utf-8" /><title>OpenClaw Setup - Sign In</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1115; color: #e6e6e6; max-width: 400px; margin: 80px auto; padding: 0 20px; }
+  input { width: 100%; box-sizing: border-box; padding: 10px; margin: 8px 0 16px; background: #181b21; border: 1px solid #2a2e37; border-radius: 6px; color: #e6e6e6; }
+  button { background: #e0554f; color: white; border: none; border-radius: 6px; padding: 10px 18px; cursor: pointer; width: 100%; }
+  .error { color: #e0554f; margin-bottom: 12px; }
+</style></head>
+<body>
+  <h2>OpenClaw Setup</h2>
+  ${error ? '<p class="error">Incorrect password.</p>' : ''}
+  <form method="POST" action="/setup/login">
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autofocus />
+    <button type="submit">Sign In</button>
+  </form>
+</body></html>`;
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+app.get('/setup/login', (req, res) => {
+  res.send(LOGIN_PAGE(false));
+});
+
+app.post('/setup/login', (req, res) => {
+  const password = req.body && req.body.password;
+  if (password === SETUP_PASSWORD) {
+    const token = crypto.randomBytes(24).toString('hex');
+    validSessions.add(token);
+    res.setHeader('Set-Cookie', `setup_session=${token}; HttpOnly; Path=/; SameSite=Lax`);
+    res.redirect('/setup');
+    return;
+  }
+  res.status(401).send(LOGIN_PAGE(true));
+});
 
 app.get('/setup', requireSetupAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'setup.html'));
@@ -104,6 +153,40 @@ app.post('/setup/api/devices/approve', requireSetupAuth, async (req, res) => {
   }
   const result = await runCli(['devices', 'approve', requestId]);
   res.json(result);
+});
+
+// Served as a real file (not inlined into the Control UI HTML) because the
+// gateway's own CSP is "script-src 'self'" with no 'unsafe-inline' - an
+// inline <script> block gets silently blocked by the browser. A same-origin
+// script file satisfies 'self' and runs normally. Listens for a signal from
+// /setup (posted only after a human has genuinely clicked Approve there)
+// and clicks Connect again automatically - this doesn't skip the actual
+// approval decision, it only automates the mechanical reconnect that
+// follows a real approval.
+const RECONNECT_LISTENER_JS = `(function () {
+  try {
+    var channel = new BroadcastChannel('openclaw-setup');
+    channel.onmessage = function (event) {
+      if (event.data === 'device-approved') {
+        setTimeout(function () {
+          var buttons = document.querySelectorAll('button');
+          for (var i = 0; i < buttons.length; i++) {
+            if (buttons[i].textContent.trim() === 'Connect') {
+              buttons[i].click();
+              break;
+            }
+          }
+        }, 500);
+      }
+    };
+  } catch (e) {
+    // BroadcastChannel unsupported - no-op, manual reconnect still works.
+  }
+})();
+`;
+
+app.get('/openclaw-railway-listener.js', (req, res) => {
+  res.type('application/javascript').send(RECONNECT_LISTENER_JS);
 });
 
 // Everything else (including the actual Control UI and its WebSocket

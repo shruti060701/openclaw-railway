@@ -21,8 +21,8 @@
   <h1>OpenClaw Setup</h1>
 
   <div class="card">
-    <p>If this is your first time connecting, open the Control UI below. It will show "device pairing required" once - come back here, approve the pending request, then reopen the Control UI and it'll connect normally.</p>
-    <a class="button-link" href="/" target="_blank" rel="noopener">Open Control UI</a>
+    <p>If this is your first time connecting, open the Control UI below. It will show "device pairing required" once - come back here and approve the pending request. If the Control UI tab is still open, it'll reconnect on its own within a couple seconds; otherwise reopen it and click Connect.</p>
+    <a class="button-link" href="/" target="openclaw-control-ui" rel="noopener">Open Control UI</a>
   </div>
 
   <div class="card">
@@ -86,8 +86,16 @@ async function approveDevice(requestId, btn) {
     });
     const body = await res.json();
     if (body.ok) {
-      status.textContent = 'Approved. Reopen the Control UI tab and click Connect again.';
+      status.textContent = 'Approved. Reconnecting the Control UI tab automatically...';
       status.style.color = '#7fd88f';
+      try {
+        const channel = new BroadcastChannel('openclaw-setup');
+        channel.postMessage('device-approved');
+        channel.close();
+      } catch (e) {
+        // BroadcastChannel unsupported - the injected listener on the
+        // Control UI page just won't fire; manual reconnect still works.
+      }
     } else {
       status.textContent = 'Approval failed: ' + (body.error || 'unknown error');
       status.style.color = '#e0554f';

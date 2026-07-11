@@ -24,6 +24,7 @@ COPY wrapper/server.js ./wrapper/server.js
 COPY wrapper/public ./wrapper/public
 
 COPY entrypoint.sh /entrypoint.sh
+COPY inject-control-ui-extras.js /inject-control-ui-extras.js
 RUN chmod +x /entrypoint.sh
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=20s \
