@@ -17,4 +17,4 @@ USER root
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=20s \
     CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "dist/index.js", "gateway", "--bind", "lan", "--port", "18789", "--allow-unconfigured"]
+CMD ["sh", "-c", "(openclaw config set gateway.controlUi.allowedOrigins \"[\\\"https://$RAILWAY_PUBLIC_DOMAIN\\\"]\" 2>/dev/null || node dist/index.js config set gateway.controlUi.allowedOrigins \"[\\\"https://$RAILWAY_PUBLIC_DOMAIN\\\"]\"); exec node dist/index.js gateway --bind lan --port 18789 --allow-unconfigured"]
