@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "sh -c '(openclaw config set gateway.controlUi.allowedOrigins \"[\\\"https://$RAILWAY_PUBLIC_DOMAIN\\\"]\" 2>/dev/null || node dist/index.js config set gateway.controlUi.allowedOrigins \"[\\\"https://$RAILWAY_PUBLIC_DOMAIN\\\"]\"); exec node dist/index.js gateway --bind lan --port 18789 --allow-unconfigured'"
+startCommand = "/entrypoint.sh"
 healthcheckPath = "/healthz"
 healthcheckTimeout = 120
 restartPolicyType = "always"
