@@ -17,9 +17,10 @@
 ## How to Use
 
 1. Click the Deploy button above
-2. Configure your messaging channels (WhatsApp, Telegram, etc.) and AI model API keys during setup
-3. Run `openclaw onboard` on your local machine to pair devices and create the admin account
-4. Start chatting with your AI assistant across any connected channel
+2. Once deployed, open your Railway domain in a browser — you'll land on the OpenClaw Control UI dashboard
+3. Copy the `OPENCLAW_GATEWAY_TOKEN` value from your Railway service's Variables tab, paste it into the "Gateway Token" field, and click Connect
+4. **First connection only:** you'll see a "Device pairing required" message — this is expected. Wait ~2 seconds (this template auto-approves pairing requests) and click Connect again. It'll connect normally from then on.
+5. Add your LLM provider API keys (Claude, OpenAI, etc.) via Railway environment variables, then start chatting across any connected channel
 
 The default gateway runs on port 18789 and exposes:
 - **Gateway API** on port 18789 (main AI interface)
@@ -30,6 +31,6 @@ The default gateway runs on port 18789 and exposes:
 
 - **Persistence**: State is stored in `/home/node/.openclaw` volume. Railway persists this automatically.
 - **API Keys**: Add your LLM provider credentials (Claude, OpenAI, etc.) via Railway environment variables.
-- **Pairing**: First-time setup requires running `openclaw gateway` locally and pairing with your Railway instance via the CLI.
+- **Pairing**: This template auto-approves device pairing requests (Railway provides no way to run the normal `openclaw devices approve` CLI command against a deployed container). Your first-ever Connect click will show "Device pairing required" — that's expected, just click Connect again a couple seconds later.
 - **Multi-device**: Once paired, any device can connect to the same gateway and share the workspace.
 - **Open Source**: MIT licensed. Source code available at [github.com/openclaw/openclaw](https://github.com/openclaw/openclaw).

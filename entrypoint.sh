@@ -30,7 +30,7 @@ openclaw config set gateway.controlUi.allowedOrigins "[\"https://$RAILWAY_PUBLIC
       echo "[auto-approve] approving $id"
       openclaw devices approve "$id" 2>/dev/null || node dist/index.js devices approve "$id" 2>/dev/null || true
     done
-    sleep 5
+    sleep 1
   done
 ) &
 
