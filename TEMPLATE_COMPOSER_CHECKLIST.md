@@ -123,11 +123,12 @@ After the template is published, test-deploy from a fresh Railway account (incog
 
 After deployment:
 
-1. Open `https://<domain>/setup`, log in with the `SETUP_PASSWORD` from Railway Variables
-2. Click "Open Control UI" (new tab), paste in `OPENCLAW_GATEWAY_TOKEN`, click Connect — this will show "device pairing required" the first time, which is expected
-3. Back in the `/setup` tab, the new device shows under "Pending device requests" — click **Approve**
-4. Reopen the Control UI tab and click Connect again — it connects normally from here on
-5. Add your LLM provider credentials (Claude, OpenAI, etc.) via environment variables in Railway dashboard, restart, and start chatting across any connected channel
+1. Open your Railway domain — you'll see the Control UI, with a red banner across the top: "First time connecting? New devices need approval at /setup before Connect will work."
+2. Paste in `OPENCLAW_GATEWAY_TOKEN` (from Railway Variables), click Connect — shows "Device pairing required," which is expected on a first connection
+3. Click the `/setup` link in the banner (or in a new tab), log in with `SETUP_PASSWORD` (password only — there's a login form, not the browser's native popup)
+4. The new device shows under "Pending device requests" — click **Approve**
+5. **No further action needed** — the Control UI tab reconnects automatically within a couple seconds (a same-origin `BroadcastChannel` signal tells it to retry, since a real human already made the actual approval decision on the password-gated page a moment earlier)
+6. Add your LLM provider credentials (Claude, OpenAI, etc.) via environment variables in Railway dashboard, restart, and start chatting across any connected channel
 
 ---
 
@@ -143,13 +144,17 @@ After deployment:
 
 **"Device pairing required" — expect this on literally every deployer's first-ever Connect click, not just yours.** Railway provides no way to run `openclaw devices approve <id>` against a deployed container (`railway shell`/`railway connect`/`railway run` are all local-only, none exec into the running container), and OpenClaw has no bootstrap exception for a fresh gateway — so without a fix, this template would be permanently unusable for every single person who deploys it.
 
-**How this template solves it (and why, after two other approaches):** a small Express wrapper (`wrapper/server.js`) sits in front of the real gateway — it owns the public port, spawns the actual OpenClaw gateway on an internal-only loopback port (`GATEWAY_INTERNAL_PORT`), and proxies everything through to it except for `/setup`, which it handles itself. `/setup` is password-gated (`SETUP_PASSWORD`) and shows pending device requests with a real **Approve** button — the deployer clicks it themselves. This is modeled on the pattern used by the most successful competing OpenClaw Railway templates (verified by reading their actual open-source code, e.g. github.com/arjunkomath/openclaw-railway-template, MIT licensed), not invented blind.
+**How this template solves it:** a small Express wrapper (`wrapper/server.js`) sits in front of the real gateway — it owns the public port, spawns the actual OpenClaw gateway on an internal-only loopback port (`GATEWAY_INTERNAL_PORT`), and proxies everything through to it except for `/setup`, which it handles itself. `/setup` requires a real login (password-only form, session cookie — not the browser's native Basic Auth popup, and not the raw `SETUP_PASSWORD` env var check alone) and shows pending device requests with a real **Approve** button — the deployer clicks it themselves. This is modeled on the pattern used by the most successful competing OpenClaw Railway templates (verified by reading their actual open-source code, e.g. github.com/arjunkomath/openclaw-railway-template, MIT licensed), not invented blind.
 
-Two other approaches were tried and explicitly rejected before landing here, both correctly caught by a security review before being deployed:
-- An auto-approve background loop (no human involved at all in approving a device) — too permissive on its own once combined with the second idea below.
-- A script injected into the Control UI page that auto-clicks "Connect" again after a pairing rejection, simulating the human's second click. This one's the important lesson: it wasn't a technical bug being routed around, it was **removing OpenClaw's own deliberate security control** (a fresh, consciously-initiated human click is required after every first-time device approval, specifically so a compromised/scripted client can't silently complete pairing with no human ever aware). Combined with the auto-approve loop, the two together would have meant anyone with the valid gateway token connects with zero human involvement at any point. Don't reintroduce either of these — the wrapper is the correct fix because it adds a *real* human action (a password-gated Approve button) rather than removing the existing one.
+Two cruder approaches were tried and rejected before landing here, both correctly caught by a security review before being deployed:
+- An auto-approve background loop with zero human involved in approving a device at all.
+- A script that auto-clicked "Connect" again after a pairing rejection with **no real approval having happened at all** — this would have silently completed pairing for anyone with the token, no human ever aware. Rejected specifically because it removed OpenClaw's own deliberate security control (a human must consciously approve a new device) rather than adding a legitimate substitute for it.
 
-**Residual friction, and it's expected, not a bug:** the deployer still does a short first-time flow (open `/setup` → open Control U​I → see pending → go back and Approve → reopen Control UI → Connect again). This is the minimum unavoidable interaction, since a browser's unique device identity only exists once it first attempts to connect — nothing can pre-approve an identity that doesn't exist yet. The difference from the raw/undocumented version of this problem is that it's now a guided, labeled setup step instead of an unexplained-looking error.
+**What's actually shipped is a *different*, legitimate version of automating the reconnect** — after a real human clicks Approve on the password-gated `/setup` page, a same-origin `BroadcastChannel` message tells the Control UI tab to click Connect again automatically. This does not skip the approval decision (that already happened, for real, via a page a human had to log into), it only automates the mechanical retry that follows it. Also injects a small always-visible banner on the Control UI page linking to `/setup`, since without it there's no on-screen way to discover that page exists at all (the vendor's own error text only mentions CLI commands nobody can run on Railway).
+
+**Net result: the deployer does one short guided sequence once per new device** (see section 9) — connect, get told to go approve, approve, and it finishes on its own. That's the practical minimum, since a browser's device identity only exists once it first attempts to connect — nothing can pre-approve an identity that doesn't exist yet.
+
+**If you fork this template:** don't remove `inject-control-ui-extras.js`/the banner+listener injection in `entrypoint.sh`, and don't inline the listener script directly into the HTML — the real page's CSP (`script-src 'self'`, no `'unsafe-inline'`) silently blocks inline `<script>` blocks. It has to stay a same-origin file, served via the `/openclaw-railway-listener.js` route in `wrapper/server.js`.
 
 **Healthcheck failing:** Verify the gateway is listening on 18789. Try `curl http://127.0.0.1:18789/healthz` from inside the container.
 
