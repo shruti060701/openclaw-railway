@@ -31,6 +31,7 @@ Apply these settings in the Railway template composer when generating the templa
 | `OPENCLAW_GATEWAY_TOKEN` | Authentication token for the gateway API (auto-generated on first startup). | `${{secret(32)}}` |
 | `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` | Allow insecure WebSocket connections for local development (not recommended for production). | `false` |
 | `OPENCLAW_DISABLE_BONJOUR` | Disable Bonjour/mDNS for device discovery (set to 1 to disable in containers). | `1` |
+| `OPENCLAW_GATEWAY_CONTROLUI_ALLOWEDORIGINS` | Browser origins allowed to connect to the Control UI dashboard. Must match your Railway domain exactly, or the dashboard's "Connect" button fails with "Browser origin not allowed." | `["https://${{RAILWAY_PUBLIC_DOMAIN}}"]` |
 | `CLAUDE_AI_SESSION_KEY` | Claude API session key for Anthropic model access (optional, only if using Claude). | Leave blank for now |
 | `CLAUDE_WEB_SESSION_KEY` | Web session key for Claude API (optional). | Leave blank for now |
 | `CLAUDE_WEB_COOKIE` | Web cookie for Claude authentication (optional). | Leave blank for now |
@@ -131,6 +132,12 @@ After deployment:
 ## 10. Troubleshooting
 
 **Gateway not starting:** Check logs for Node.js errors. Ensure volume is mounted at `/home/node/.openclaw`.
+
+**`EACCES: permission denied, mkdir '/home/node/.openclaw/state'`:** Railway mounts a fresh volume as root-owned, but the upstream image runs as a non-root user by default. The Dockerfile sets `USER root` to fix this — if you fork the template and remove that line, this error comes back.
+
+**`Missing config. Run 'openclaw setup' or set gateway.mode=local...'` on startup:** The gateway hard-exits if it isn't already paired. The start command includes `--allow-unconfigured` so it runs and serves `/healthz` before pairing — don't remove that flag.
+
+**"Browser origin not allowed" when clicking Connect in the Control UI dashboard:** The gateway's Control UI has an origin allowlist and rejects the Railway domain by default. Set `OPENCLAW_GATEWAY_CONTROLUI_ALLOWEDORIGINS` to `["https://${{RAILWAY_PUBLIC_DOMAIN}}"]` (Railway's reference syntax resolves this to each deployer's own generated domain — never hardcode a literal domain here). Restart the service after setting it.
 
 **Healthcheck failing:** Verify the gateway is listening on 18789. Try `curl http://127.0.0.1:18789/healthz` from inside the container.
 
