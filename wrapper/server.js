@@ -124,14 +124,49 @@ app.get('/setup/login', (req, res) => {
   res.send(LOGIN_PAGE(false));
 });
 
+// Simple in-memory rate limit: 5 attempts per IP per 5 minutes. This is a
+// single-operator setup page, not a multi-tenant login - the goal is just
+// to stop unattended password-guessing scripts, not defend against a
+// determined targeted attacker.
+const loginAttempts = new Map(); // ip -> { count, resetAt }
+const MAX_ATTEMPTS = 5;
+const WINDOW_MS = 5 * 60 * 1000;
+
+function timingSafeEquals(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  // Compare against a fixed-length buffer first so the length itself isn't
+  // leaked via early return, then timingSafeEqual requires equal lengths.
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA); // constant-time no-op to avoid a fast path
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 app.post('/setup/login', (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (entry && entry.resetAt > now && entry.count >= MAX_ATTEMPTS) {
+    res.status(429).send(LOGIN_PAGE(true));
+    return;
+  }
+
   const password = req.body && req.body.password;
-  if (password === SETUP_PASSWORD) {
+  if (password && timingSafeEquals(password, SETUP_PASSWORD)) {
+    loginAttempts.delete(ip);
     const token = crypto.randomBytes(24).toString('hex');
     validSessions.add(token);
-    res.setHeader('Set-Cookie', `setup_session=${token}; HttpOnly; Path=/; SameSite=Lax`);
+    res.setHeader('Set-Cookie', `setup_session=${token}; HttpOnly; Secure; Path=/; SameSite=Lax`);
     res.redirect('/setup');
     return;
+  }
+
+  if (!entry || entry.resetAt <= now) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+  } else {
+    entry.count += 1;
   }
   res.status(401).send(LOGIN_PAGE(true));
 });
