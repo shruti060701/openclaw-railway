@@ -16,7 +16,6 @@ openclaw config set gateway.controlUi.allowedOrigins "[\"https://$RAILWAY_PUBLIC
 (
   while true; do
     RAW=$(openclaw devices list --json 2>/dev/null || node dist/index.js devices list --json 2>/dev/null || echo '{}')
-    echo "[auto-approve] devices list: $RAW"
     IDS=$(node -e '
       let d;
       try { d = JSON.parse(process.argv[1]); } catch (e) { process.exit(0); }
