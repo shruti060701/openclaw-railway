@@ -10,6 +10,10 @@ ENV HOME=/home/node \
 
 EXPOSE 18789 18790 3978
 
+# Railway mounts fresh volumes as root:root; the upstream image runs as a
+# non-root user, which can't mkdir into /home/node/.openclaw on first boot.
+USER root
+
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=20s \
     CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
